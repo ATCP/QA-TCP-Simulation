@@ -1,0 +1,291 @@
+/* Modified Linux module source code from /home/weixl/linux-2.6.22.6 */
+#define NS_PROTOCOL "tcp_sod.c"
+#include "../ns-linux-c.h"
+#include "../ns-linux-util.h"
+/*
+ * Queue length Adaptive TCP congestion control
+ */
+
+
+#include "tcp_sod.h"
+
+/* Default values of the Vegas variables, in fixed-point representation
+ * with V_PARAM_SHIFT bits to the right of the binary point.
+ */
+#define V_PARAM_SHIFT 1
+
+
+static int target_qs = 3<<V_PARAM_SHIFT;
+static int init_cwnd = 32<<V_PARAM_SHIFT;
+static int init_cwnd_on = 1<<V_PARAM_SHIFT;
+
+module_param(target_qs, int, 0644);
+MODULE_PARM_DESC(target_qs, "Target Queue Length");
+module_param(init_cwnd, int, 0644);
+MODULE_PARM_DESC(init_cwnd, "Initial congestion window size");
+module_param(init_cwnd_on, int, 0644);
+MODULE_PARM_DESC(init_cwnd_on, "Initial congestion window on");
+
+
+static void sod_enable(struct sock *sk)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+	struct sod *sod = inet_csk_ca(sk);
+
+	sod->doing_sod_now = 1;
+	sod->beg_snd_nxt = tp->snd_nxt;
+
+	sod->cntRTT = 0;
+	sod->currentQueueLen = 0x7fffffff;
+}
+
+static inline void sod_disable(struct sock *sk)
+{
+	struct sod *sod = inet_csk_ca(sk);
+
+	sod->doing_sod_now = 0;
+}
+
+void tcp_sod_init(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sod *sod = inet_csk_ca(sk);
+
+	if (init_cwnd_on != 0)
+		tp->snd_cwnd = init_cwnd;
+
+	sod->baseRTT = 0x7fffffff;
+	sod->currentQueueLen = 0x7fffffff;
+	sod->minRTT = 0x7fffffff;
+	sod->cntRTT = 0;
+	sod_enable(sk);
+}
+EXPORT_SYMBOL_GPL(tcp_sod_init);
+
+void tcp_sod_pkts_acked(struct sock *sk, u32 cnt, ktime_t last)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sod *sod = inet_csk_ca(sk);
+	u64 vrtt;	
+
+	if (ktime_equal(last, net_invalid_timestamp()))
+		return;
+
+	/* Never allow zero rtt or baseRTT */
+
+	vrtt = ktime_to_us(net_timedelta(last)) + 1;
+        
+        
+	/* Find the minimum propagation delay: */
+	if (vrtt < sod->baseRTT)
+		sod->baseRTT = vrtt;
+	
+	if (!sod->is_1st_ack_rcv)
+        {
+            sod->is_1st_ack_rcv = 1;
+            sod->start_time = Scheduler::instance().clock();
+        }
+        
+        sod->minRTT = min(vegas->minRTT, vrtt);
+	sod->cntRTT++;
+        
+        
+        
+        
+}
+EXPORT_SYMBOL_GPL(tcp_sod_pkts_acked);
+
+void tcp_sod_state(struct sock *sk, u8 ca_state)
+{
+
+	if (ca_state == TCP_CA_Open)
+		sod_enable(sk);
+	else
+		sod_disable(sk);
+}
+EXPORT_SYMBOL_GPL(tcp_sod_state);
+
+/*
+ * If the connection is idle and we are restarting,
+ * then we don't want to do any Vegas calculations
+ * until we get fresh RTT samples.  So when we
+ * restart, we reset our Vegas state to a clean
+ * slate. After we get acks for this flight of
+ * packets, _then_ we can make Vegas calculations
+ * again.
+ */
+void tcp_sod_cwnd_event(struct sock *sk, enum tcp_ca_event event)
+{
+	if (event == CA_EVENT_CWND_RESTART ||
+	    event == CA_EVENT_TX_START)
+		tcp_sod_init(sk);
+}
+EXPORT_SYMBOL_GPL(tcp_sod_cwnd_event);
+
+static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
+				 u32 seq_rtt, u32 in_flight, int flag)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sod *sod = inet_csk_ca(sk);
+	u32 diff;	
+
+	if (!sod->doing_sod_now)
+		return tcp_reno_cong_avoid(sk, ack, seq_rtt, in_flight, flag);
+
+	/* limited by applications */
+	if (!tcp_is_cwnd_limited(sk, in_flight))
+		return;
+
+	//if (sod->baseRTT == 0x7fffffff)
+	//	tp->snd_cwnd = init_cwnd;	
+
+	/* We do the Veno calculations only if we got enough rtt samples */
+	//if (sod->cntRTT <= 2) {
+		/* We don't have enough rtt samples to do the Veno
+		 * calculation, so we'll behave like Reno.
+		 */
+	//	tcp_reno_cong_avoid(sk, ack, seq_rtt, in_flight, flag);
+	//} else {
+	//	u32 rtt, target_cwnd;
+
+		/* We have enough rtt samples, so, using the Veno
+		 * algorithm, we determine the state of the network.
+		 */
+
+		//rtt = sod->minRTT;
+
+		//target_cwnd = ((tp->snd_cwnd * sod->baseRTT)
+		//	       << V_PARAM_SHIFT) / rtt;
+
+		//diff = (tp->snd_cwnd << V_PARAM_SHIFT) - target_cwnd;
+
+		//if (tp->snd_cwnd <= tp->snd_ssthresh) {
+			/* Slow start.  */
+			//tcp_slow_start(tp);
+		//	if (sod->minQL < target_qs) {
+		//		tcp_slow_start(tp);
+		//	}
+		//	else {
+		//		tp->snd_cwnd = min(tp->snd_ssthresh, tp->snd_cwnd);
+		//		tp->snd_ssthresh = tp->snd_cwnd;
+		//	}
+			
+		//} else {
+			/* Congestion avoidance. */
+			if (sod->minQL < target_qs) {
+				/* In the "non-congestive state", increase cwnd
+				 *  every rtt.
+				 */
+				/*if (tp->snd_cwnd_cnt >= tp->snd_cwnd) {
+					if (tp->snd_cwnd < tp->snd_cwnd_clamp)
+						tp->snd_cwnd++;
+					tp->snd_cwnd_cnt = 0;
+				} else
+					tp->snd_cwnd_cnt++;*/
+				//tcp_slow_start(tp);
+				tp->snd_cwnd++;
+			} else {
+				/* In the "congestive state", increase cwnd
+				 * every other rtt.
+				 */
+				/*if (tp->snd_cwnd_cnt >= tp->snd_cwnd) {
+					if (sod->inc
+					    && tp->snd_cwnd <
+					    tp->snd_cwnd_clamp) {
+						tp->snd_cwnd++;
+						sod->inc = 0;
+					} else {
+						sod->inc = 1;	
+					}
+					tp->snd_cwnd_cnt = 0;
+				} else
+					tp->snd_cwnd_cnt++;*/
+				if (tp->snd_cwnd_cnt >= tp->snd_cwnd) {
+					tp->snd_cwnd--;
+					tp->snd_cwnd_cnt = 0;
+				}
+				else tp->snd_cwnd_cnt++;
+			}
+		//}
+		if (tp->snd_cwnd < 2)
+			tp->snd_cwnd = 2;
+		else if (tp->snd_cwnd > tp->snd_cwnd_clamp)
+			tp->snd_cwnd = tp->snd_cwnd_clamp;
+	//}
+	sod->prev_QL = sod->minQL;
+	//printf("cwnd: %lu ssth: %lu minQL: %lu diff: %lu rtt: %lu snd_cwnd_cnt: %lu inc: %lu\n", tp->snd_cwnd, tp->snd_ssthresh, sod->minQL, diff, tp->srtt >> 3, tp->snd_cwnd_cnt, sod->inc);
+	/* Wipe the slate clean for the next rtt. */
+	/* veno->cntrtt = 0; */
+	sod->minRTT = 0x7fffffff;
+	sod->minQL = 0x7fffffff;
+
+}
+
+
+/* Extract info for Tcp socket info provided via netlink. */
+void tcp_sod_get_info(struct sock *sk, u32 ext, struct sk_buff *skb)
+{
+/*
+	const struct vegas *ca = inet_csk_ca(sk);
+	if (ext & (1 << (INET_DIAG_VEGASINFO - 1))) {
+		struct tcpvegas_info info = {
+			.tcpv_enabled = ca->doing_vegas_now,
+			.tcpv_rttcnt = ca->cntRTT,
+			.tcpv_rtt = ca->baseRTT,
+			.tcpv_minrtt = ca->minRTT,
+		};
+
+		nla_put(skb, INET_DIAG_VEGASINFO, sizeof(info), &info);
+	}
+*/
+}
+EXPORT_SYMBOL_GPL(tcp_sod_get_info);
+
+/* SOD MD phase */
+static u32 tcp_sod_ssthresh(struct sock *sk)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+	struct sod *sod = inet_csk_ca(sk);
+
+	if (sod->prev_QL <= target_qs)
+		/* in "non-congestive state", cut cwnd by 1/5 */
+		return tp->snd_cwnd;//max(tp->snd_cwnd * 4 / 5, 2U);
+	else
+		/* in "congestive state", cut cwnd by 1/2 */
+		return max(tp->snd_cwnd >> 1U, 2U);
+}
+EXPORT_SYMBOL_GPL(tcp_sod_ssthresh);
+
+static struct tcp_congestion_ops tcp_sod = {
+	.flags		= TCP_CONG_RTT_STAMP,
+	.init		= tcp_sod_init,
+	.ssthresh	= tcp_sod_ssthresh,
+	.cong_avoid	= tcp_sod_cong_avoid,
+	.pkts_acked	= tcp_sod_pkts_acked,
+	.set_state	= tcp_sod_state,
+	.cwnd_event	= tcp_sod_cwnd_event,
+	.get_info	= tcp_sod_get_info,
+
+	.owner		= THIS_MODULE,
+	.name		= "sod",
+};
+
+static int __init tcp_sod_register(void)
+{
+	BUILD_BUG_ON(sizeof(struct sod) > ICSK_CA_PRIV_SIZE);
+	tcp_register_congestion_control(&tcp_sod);
+	return 0;
+}
+
+static void __exit tcp_sod_unregister(void)
+{
+	tcp_unregister_congestion_control(&tcp_sod);
+}
+
+module_init(tcp_sod_register);
+module_exit(tcp_sod_unregister);
+
+MODULE_AUTHOR("Chan Chi Fung, Stanley");
+MODULE_LICENSE("Sysem studio");
+MODULE_DESCRIPTION("TCP SOD");
+#undef NS_PROTOCOL

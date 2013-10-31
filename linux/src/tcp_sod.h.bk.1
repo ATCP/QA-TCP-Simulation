@@ -1,0 +1,70 @@
+/*
+ * TCP SOD congestion control interface
+ */
+#ifndef __TCP_SOD_H
+#define __TCP_SOD_H 1
+
+/* SOD variables */
+
+struct Packet
+{
+    u32 seqNo;
+    u64 time;
+    u32 len;
+    
+    Packet()
+    {
+       seqNo = time = len = 0; 
+    }
+    
+    Flush()
+    {
+        seqNo = time = len = 0;
+    }
+    
+};
+
+struct slideWindow
+{
+    Packet *window;
+    u_int _size, capacity, _delta, _interval;
+    
+    slideWindow(u_int size, u_int delta)
+    {
+        capacity = size;
+        _delta = delta;
+        window = (Packet *)malloc(sizeof(Packet)*size);
+        
+        for (int i = 0; i < size; i ++)
+            window[i].Flush();
+        
+        
+    }
+};
+
+
+struct sod {
+	u32	beg_snd_nxt;	/* right edge during last RTT */
+	u32	beg_snd_una;	/* left edge  during last RTT */
+	u32	beg_snd_cwnd;	/* saves the size of the cwnd */
+	u8	doing_sod_now;/* if true, do vegas for this RTT */
+	u16	cntRTT;		/* # of RTTs measured within last RTT */
+	u32	currentQueueLen;/* min of RTTs measured within last RTT (in usec) */
+	u64	minRTT;         /* min of RTTs measured within last RTT (in usec) */
+	u32	targetQueueLen;
+	u64	baseRTT;	/* the min of all Vegas RTT measurements seen (in usec) */
+        u64     estimatedBandwidth; /**/
+        u32     is_1st_ack_rcv;
+        u64     start_time;
+        u32     update_period;
+        
+
+};
+
+extern void tcp_sod_init(struct sock *sk);
+extern void tcp_sod_state(struct sock *sk, u8 ca_state);
+extern void tcp_sod_pkts_acked(struct sock *sk, u32 cnt, ktime_t last);
+extern void tcp_sod_cwnd_event(struct sock *sk, enum tcp_ca_event event);
+extern void tcp_sod_get_info(struct sock *sk, u32 ext, struct sk_buff *skb);
+
+#endif	/* __TCP_SOD_H */
