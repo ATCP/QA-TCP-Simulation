@@ -11,7 +11,7 @@
 /*
 
 */
-#define V_PARAM_SHIFT 1
+#define V_PARAM_SHIFT 5
 
 
 static int target_qs = 3<<V_PARAM_SHIFT;
@@ -60,7 +60,7 @@ void tcp_sod_init(struct sock *sk)
 	sod->minRTT = 0x7fffffff;
 	sod->cntRTT = 0;
         sod->targetQueueLen = 10;
-        sod->update_period = 0.0005;
+        sod->update_period = 0.005;
         sod->thruput = 0;
         sod->is_1st_ack_rcv = 0;
                 
@@ -105,10 +105,9 @@ void tcp_sod_pkts_acked(struct sock *sk, u32 cnt, ktime_t last)
     sod->cntRTT++;
     
     
-    //printf("%d\n", cnt);
+    printf("%lf %d\n", now, cnt);
     put(&sod->bwWindow, now, cnt);
-        
-            
+                    
 }
 EXPORT_SYMBOL_GPL(tcp_sod_pkts_acked);
 
@@ -161,16 +160,15 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
             
             if (timeInterval(&sod->bwWindow, now) >= (double)sod->baseRTT/(double)1000000 + sk->ack_var)
             {
-                printf("1.\n");
-                sod->thruput = sod->bwWindow._total / timeInterval(&sod->bwWindow, now);
-                timeShift(&sod->bwWindow, now, (double)sod->baseRTT/(double)1000000 + sk->ack_var);
+                //printf("1.\n");
+                sod->thruput = sod->bwWindow._total / timeInterval(&sod->bwWindow, now);               
                 sod->currentQueueLen = init_cwnd - sod->bwWindow._total + sk->sod_diff;
-                
+                timeShift(&sod->bwWindow, now, (double)sod->baseRTT/(double)1000000 + sk->ack_var);
                 printf("1. %ld %u %d\n", sod->currentQueueLen, sod->bwWindow._size, sk->sod_diff);
             } 
             else
             {
-                printf("2.\n");
+                //printf("2.\n");
                 
                 if (!timeInterval(&sod->bwWindow, now))
                 {
@@ -186,7 +184,7 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
                 printf("2. %ld %lf %lf %d\n", sod->currentQueueLen, sod->estimatedBandwidth, ((double)sod->baseRTT/(double)1000000 + sk->ack_var), sk->sod_diff);
             }
                                     
-            tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 2 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
+            tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 0 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
             
             sod->start_time = now;
                         

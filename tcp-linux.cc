@@ -479,8 +479,8 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 
 	if (ack>prior_snd_una) {
 		linux_.bytes_acked += (ack - prior_snd_una)*linux_.mss_cache;
-                linux_.sod_diff -= ack - prior_snd_una;
-                printf("%d\n", ack-prior_snd_una);
+                linux_.sod_diff -= (ack - prior_snd_una);
+                
 		flag |= (FLAG_DATA_ACKED);
 	};
 
@@ -791,6 +791,8 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 			if (found) {
 				output(xmit_seqno, reason);
                                 linux_.sod_diff ++;
+                                int pkt = next_pkts_in_flight_;
+                                printf("%d %d %d %d\n", linux_.sod_diff, packets_in_flight(), win, pkt);
 				next_pkts_in_flight_ = min( next_pkts_in_flight_, max(packets_in_flight()-1,1));
 				if (t_seqno_ <= xmit_seqno) {
 					printf("Hit a strange case 2.\n");
