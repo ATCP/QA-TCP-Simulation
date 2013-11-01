@@ -479,6 +479,8 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 
 	if (ack>prior_snd_una) {
 		linux_.bytes_acked += (ack - prior_snd_una)*linux_.mss_cache;
+                linux_.sod_diff -= ack - prior_snd_una;
+                printf("%d\n", ack-prior_snd_una);
 		flag |= (FLAG_DATA_ACKED);
 	};
 
@@ -556,13 +558,9 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 	};
         
        
-        // Liu Ke's code
-        linux_.sod_diff --;
-        linux_.sod_diff += maxburst_;
-	//printf("%d\n", maxburst_);
-        send_much(FALSE, 0, maxburst_);	//anytime we can do send_much by checking it.
-	
         
+        send_much(FALSE, 0, maxburst_);	//anytime we can do send_much by checking it.
+	        
         DEBUG(5, "data sent\n");
 	Packet::free(pkt);
 
@@ -769,9 +767,7 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 */
         //printf("next_pkts_in_flight_: %d\n", packets_in_flight() + 1);
 	next_pkts_in_flight_ = min(next_pkts_in_flight_, packets_in_flight()+1);
-        
-        
-	
+                	
         while ( packets_in_flight() < max(win, next_pkts_in_flight_) ) {
 		if (overhead_ == 0 || force) {
 			found = 0;
@@ -794,6 +790,7 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 			}
 			if (found) {
 				output(xmit_seqno, reason);
+                                linux_.sod_diff ++;
 				next_pkts_in_flight_ = min( next_pkts_in_flight_, max(packets_in_flight()-1,1));
 				if (t_seqno_ <= xmit_seqno) {
 					printf("Hit a strange case 2.\n");
@@ -812,7 +809,7 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 		if (maxburst && npacket >= maxburst)
 			break;
 	} /* while */
-        //printf("%d\n", maxburst);
+        
 	/* call helper function */
 	send_helper(maxburst);
 }

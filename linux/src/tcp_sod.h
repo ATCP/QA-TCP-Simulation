@@ -9,20 +9,22 @@
 struct Packet
 {
     double time;
-    u32 len;
+    int32_t len;
 };
 
 
 typedef struct 
 {
     struct Packet *window;
-    int64_t _size, capacity;
+    int32_t _size, capacity;
+    int32_t _total;
 }slideWindow;  
     
-void initSlideWindow(slideWindow *sw, u_int size)
+void initSlideWindow(slideWindow *sw, int size)
 {
     sw->capacity = size;
     sw->_size = 0;
+    sw->_total = 0;
     sw->window = (struct Packet *)malloc(sizeof(struct Packet)*size);
     int i;
     for (i = 0; i < sw->capacity; i ++)
@@ -38,13 +40,18 @@ void delSlideWindow(slideWindow *sw)
 
 int isEmpty(slideWindow *sw)
 {
-    if (!sw->_size)
+    if (!sw->_total)
         return 1;
     else
         return 0;
 }
 
-u_int size(slideWindow *sw)
+int32_t total(slideWindow *sw)
+{
+    return sw->_total;
+}
+
+int32_t size(slideWindow *sw)
 {
     return sw->_size;
 }
@@ -60,9 +67,11 @@ double timeInterval(slideWindow *sw, double current_time)
 void shift(slideWindow *sw)
 {
     int i = 0;
+    sw->_total -= sw->window[0].len;
     for (i = 0; i < sw->_size - 1; i ++)
     {
         sw->window[i].time = sw->window[i+1].time;
+        sw->window[i].len = sw->window[i+1].len;
     }
 }
 
@@ -72,21 +81,26 @@ void timeShift(slideWindow *sw, double current_time, double thresh)
     {
         shift(sw);
         sw->_size --;
+        
     }
 }
 
-void put(slideWindow *sw, double time)
+void put(slideWindow *sw, double time, int count)
 {
     if (sw->_size < sw->capacity)
     {
         sw->window[sw->_size].time = time;
+        sw->window[sw->_size].len = count;
         sw->_size ++;
     }
     else
     {
         shift(sw);
         sw->window[sw->_size-1].time = time;
+        sw->window[sw->_size-1].len = count;
     }
+    
+    sw->_total += count;
 }
 
 
@@ -105,6 +119,7 @@ struct sod
     int    is_1st_ack_rcv;
     double    start_time;
     double    update_period;
+    double  thruput;
     slideWindow bwWindow;    
     FILE* output;
 
