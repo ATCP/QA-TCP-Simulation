@@ -120,7 +120,7 @@ LinuxTcpAgent::LinuxTcpAgent() :
         linux_.output_file = NULL; //Liu Ke's code
         
         linux_.sod_diff = 0;
-        
+        linux_.sod_start = 0;
 	linux_.td_count = 0;
 	linux_.head = 0;
 	linux_.last = 0;
@@ -476,26 +476,25 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 	}
 
 	prior_in_flight = packets_in_flight();
-
+        
 	if (ack>prior_snd_una) {
 		linux_.bytes_acked += (ack - prior_snd_una)*linux_.mss_cache;
-                linux_.sod_diff -= (ack - prior_snd_una);
-                
+                                                
 		flag |= (FLAG_DATA_ACKED);
 	};
 
 	flag |= ack_processing(pkt, flag);
 	DEBUG(5, "ack_processed prior_snd_una=%lu ack=%lu\n", prior_snd_una, ack);
-
+        
 	if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
 		flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
 	};
+        
 	DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
 
 	time_processing(pkt, flag, &seq_rtt);
 	DEBUG(5, "time processed\n");
-
-
+                
 	if (linux_.icsk_ca_ops) {
 		if ((!initialized_)) {
 			if  (linux_.icsk_ca_ops->init)
@@ -544,6 +543,7 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 			tcp_cong_avoid(ack, seq_rtt, prior_in_flight, 0);
 		DEBUG(5, "dubious track cc finished\n");
 		tcp_fastretrans_alert(flag);
+                
 	} else {
 		if ((flag & FLAG_DATA_ACKED)) {
 			prev_highest_ack_ = highest_ack_ ;
@@ -790,17 +790,23 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 			}
 			if (found) {
 				output(xmit_seqno, reason);
-                                linux_.sod_diff ++;
-                                int pkt = next_pkts_in_flight_;
-                                printf("%d %d %d %d\n", linux_.sod_diff, packets_in_flight(), win, pkt);
-				next_pkts_in_flight_ = min( next_pkts_in_flight_, max(packets_in_flight()-1,1));
-				if (t_seqno_ <= xmit_seqno) {
+                                
+                                if (linux_.sod_start)
+                                    linux_.sod_diff ++;
+                                
+                                //int pkt = next_pkts_in_flight_;
+                                //printf("%d %d %d %d\n", linux_.sod_diff, packets_in_flight(), win, pkt);
+				next_pkts_in_flight_ = min(next_pkts_in_flight_, max(packets_in_flight()-1,1));
+				
+                                if (t_seqno_ <= xmit_seqno) {
 					printf("Hit a strange case 2.\n");
 					t_seqno_ = xmit_seqno + 1;
 				}
+                                
 				linux_.snd_nxt = t_seqno_*linux_.mss_cache;
 				npacket++;
 			}
+                        
 		} else if (!(delsnd_timer_.status() == TIMER_PENDING)) {
 			/*
 			 * Set a delayed send timeout.

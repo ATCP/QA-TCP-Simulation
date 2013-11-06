@@ -367,6 +367,7 @@ struct tcp_sock {
 	double prev_time;
         
         long long sod_diff; 
+        int sod_start;
         
 	struct tcp_congestion_ops *icsk_ca_ops;
 	__u8			  icsk_ca_state;
