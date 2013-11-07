@@ -762,7 +762,8 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
         
         
 	found = 1;
-	/*
+
+        /*
 * as long as the pipe is open and there is app data to send...
 */
         //printf("next_pkts_in_flight_: %d\n", packets_in_flight() + 1);

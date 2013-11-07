@@ -13,13 +13,12 @@
 */
 #define V_PARAM_SHIFT 5
 
-
-static int target_qs = 3<<V_PARAM_SHIFT;
-static int init_cwnd = 148;
+//static int target_qs = 3<<V_PARAM_SHIFT;
+static int init_cwnd = 150;
 static int init_cwnd_on = 1;
 
-module_param(target_qs, int, 0644);
-MODULE_PARM_DESC(target_qs, "Target Queue Length");
+//module_param(target_qs, int, 0644);
+//MODULE_PARM_DESC(target_qs, "Target Queue Length");
 module_param(init_cwnd, int, 0644);
 MODULE_PARM_DESC(init_cwnd, "Initial congestion window size");
 module_param(init_cwnd_on, int, 0644);
@@ -32,7 +31,7 @@ static void sod_enable(struct sock *sk)
 	struct sod *sod = inet_csk_ca(sk);
 
 	sod->doing_sod_now = 1;
-	sod->beg_snd_nxt = tp->snd_nxt;
+	//sod->beg_snd_nxt = tp->snd_nxt;
 
 	sod->cntRTT = 0;
 	sod->currentQueueLen = 0x7fffffff;
@@ -60,15 +59,16 @@ void tcp_sod_init(struct sock *sk)
 	sod->minRTT = 0x7fffffff;
 	sod->cntRTT = 0;
         sod->targetQueueLen = 10;
-        sod->update_period = 0.005;
-        sod->thruput = 0;
+        sod->update_period = 0.05;
+        sod->estimate_period = 0.05;        
         sod->is_1st_ack_rcv = 0;
                 
-        
+       
         sod->output = fopen("sod-output", "w");
         
         initSlideWindow(&sod->bwWindow, 1024);
 	sod_enable(sk);
+        
         
 }
 EXPORT_SYMBOL_GPL(tcp_sod_init);
@@ -155,19 +155,21 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
 	/* limited by applications */
 	if (!tcp_is_cwnd_limited(sk, in_flight))
 		return;
-        
-       
+               
         double now = tp->current_time;
 	if (now - sod->start_time >= sod->update_period)
         {   
-            
-            if (timeInterval(&sod->bwWindow, now) >= (double)sod->baseRTT/(double)1000000 + sk->ack_var)
+          
+            if (timeInterval(&sod->bwWindow, now) >= sod->estimate_period)//(double)sod->baseRTT/(double)1000000 + sk->ack_var)
             {                
-                sod->thruput = sod->bwWindow._total / timeInterval(&sod->bwWindow, now);               
-                sod->currentQueueLen = init_cwnd - sod->bwWindow._total + sk->sod_diff;
-                timeShift(&sod->bwWindow, now, (double)sod->baseRTT/(double)1000000 + sk->ack_var);
+                //sod->thruput = sod->bwWindow._total / timeInterval(&sod->bwWindow, now);               
+               
+                sod->estimatedBandwidth = sod->bwWindow._total / timeInterval(&sod->bwWindow, now); 
+                sod->currentQueueLen = init_cwnd - sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var) + sk->sod_diff;
+                timeShift(&sod->bwWindow, now, sod->estimate_period);//(double)sod->baseRTT/(double)1000000 + sk->ack_var);
                 tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 0 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
-                printf("1 %lf %lf %u %u %ld %u %ld %lf %d\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->thruput, sod->bwWindow._total);
+                
+                printf("1 %lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
                 
             } 
             else
@@ -184,14 +186,13 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
                     sod->currentQueueLen = init_cwnd - sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var) + sk->sod_diff;
                 }
                 
-                sod->thruput = sod->estimatedBandwidth;
+                //sod->thruput = sod->estimatedBandwidth;
                 tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 0 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
                 
-                printf("2. %lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->thruput, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
+                printf("2. %lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
+                
             }
-                                    
-           
-            
+                                                           
             sod->start_time = now;
                         
         }

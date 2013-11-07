@@ -106,20 +106,21 @@ void put(slideWindow *sw, double time, int count)
 
 struct sod 
 {
-    u32	   beg_snd_nxt;         /* right edge during last RTT */
-    u32	   beg_snd_una;         /* left edge  during last RTT */
-    u32	   beg_snd_cwnd;	/* saves the size of the cwnd */
+    //u32	   beg_snd_nxt;         /* right edge during last RTT */
+    //u32	   beg_snd_una;         /* left edge  during last RTT */
+    //u32	   beg_snd_cwnd;	/* saves the size of the cwnd */
     u8	   doing_sod_now;       /* if true, do vegas for this RTT */
     u16	   cntRTT;		/* # of RTTs measured within last RTT */
-    int64_t    currentQueueLen;     /* min of RTTs measured within last RTT (in usec) */
+    int64_t   currentQueueLen;     /* min of RTTs measured within last RTT (in usec) */
     u64	   minRTT;              /* min of RTTs measured within last RTT (in usec) */
-    int64_t	   targetQueueLen;
+    int64_t   targetQueueLen;
     u64	   baseRTT;             /* the min of all Vegas RTT measurements seen (in usec) */
     double    estimatedBandwidth;  /**/
     int    is_1st_ack_rcv;
     double    start_time;
     double    update_period;
-    double  thruput;
+    double    estimate_period;
+    
     slideWindow bwWindow;    
     FILE* output;
 
