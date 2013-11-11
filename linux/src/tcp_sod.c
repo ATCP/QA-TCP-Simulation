@@ -31,10 +31,24 @@ static void sod_enable(struct sock *sk)
 	struct sod *sod = inet_csk_ca(sk);
 
 	sod->doing_sod_now = 1;
-	//sod->beg_snd_nxt = tp->snd_nxt;
-
-	sod->cntRTT = 0;
+	
+	
+	sod->currentQueueLen = 0x7fffffff;       
+	sod->baseRTT = 0x7fffffff;
 	sod->currentQueueLen = 0x7fffffff;
+	//sod->minRTT = 0x7fffffff;
+	//sod->cntRTT = 0;
+        sod->targetQueueLen = 10;
+        sod->update_period = 0.005;
+        sod->estimate_period = 0.05;        
+        sod->is_1st_ack_rcv = 0; 
+        sod->start_seq = sk->snd_nxt;
+      
+        sod->start_time = 0;
+        sod->output = fopen("sod-output", "w");
+        
+        cleanWindow(&sod->bwWindow);
+                
 }
 
 static inline void sod_disable(struct sock *sk)
@@ -42,34 +56,24 @@ static inline void sod_disable(struct sock *sk)
 	struct sod *sod = inet_csk_ca(sk);
 
 	sod->doing_sod_now = 0;
+        
 }
 
 void tcp_sod_init(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sod *sod = inet_csk_ca(sk);
+                               
         
-	if (init_cwnd_on != 0)
+        if (init_cwnd_on != 0)
         {
             tp->snd_cwnd = init_cwnd;
             printf("initial congestion window: %lu %d\n", tp->snd_cwnd, init_cwnd_on);
-        }
-	sod->baseRTT = 0x7fffffff;
-	sod->currentQueueLen = 0x7fffffff;
-	sod->minRTT = 0x7fffffff;
-	sod->cntRTT = 0;
-        sod->targetQueueLen = 10;
-        sod->update_period = 0.05;
-        sod->estimate_period = 0.05;        
-        sod->is_1st_ack_rcv = 0;
+        }        
                 
-       
-        sod->output = fopen("sod-output", "w");
-        
         initSlideWindow(&sod->bwWindow, 1024);
 	sod_enable(sk);
-        
-        
+                
 }
 EXPORT_SYMBOL_GPL(tcp_sod_init);
 
@@ -78,39 +82,50 @@ void tcp_sod_pkts_acked(struct sock *sk, u32 cnt, ktime_t last)
         
     struct tcp_sock *tp = tcp_sk(sk);     
     struct sod *sod = inet_csk_ca(sk);
+    
+    u64 vrtt;          	
    
+    double now = sk->current_time;   
     
-    u64 vrtt;	
-
-    if (ktime_equal(last, net_invalid_timestamp()))
-            return;
-
-    /* Never allow zero rtt or baseRTT */
+    /*
+    if (ktime_equal(last, net_invalid_timestamp()))    
+    {
+        printf("what\n");
+        return;        
+    }
+    */
     
+    /* Never allow zero rtt or baseRTT */    
     vrtt = ktime_to_us(net_timedelta(last)) + 1;
            
     /* Find the minimum propagation delay: */
     if (vrtt < sod->baseRTT)
             sod->baseRTT = vrtt;                
     
-    double now = sk->current_time;
-    
     if (!sod->is_1st_ack_rcv && sod->doing_sod_now)
     {
-        sod->is_1st_ack_rcv = 1;
-        sod->start_time = now;
-        sk->sod_start = 1;
-        sk->sod_diff -= (long)cnt;
+        if (sk->snd_una > sod->start_seq)
+        {
+            sod->is_1st_ack_rcv = 1;       
+        
+            sod->start_time = now;
+            sk->sod_start = 1;
+            //sk->sod_diff -= (long)cnt;
+                              
+            put(&sod->bwWindow, now, cnt); 
+            
+        }
     }
     else if (sod->is_1st_ack_rcv && sod->doing_sod_now)
+    {
         sk->sod_diff -= (long)cnt;
+        put(&sod->bwWindow, now, cnt); 
+    }   
     
-    sod->minRTT = min(sod->minRTT, vrtt);
-    sod->cntRTT++;
-    
-        
-    put(&sod->bwWindow, now, cnt);
-                    
+    //sod->minRTT = min(sod->minRTT, vrtt);
+    //sod->cntRTT++;
+   
+            
 }
 EXPORT_SYMBOL_GPL(tcp_sod_pkts_acked);
 
@@ -153,10 +168,14 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
 		return tcp_reno_cong_avoid(sk, ack, seq_rtt, in_flight, flag);
        
 	/* limited by applications */
-	if (!tcp_is_cwnd_limited(sk, in_flight))
-		return;
-               
+	//if (!tcp_is_cwnd_limited(sk, in_flight))
+	//	return;
+        
+                
         double now = tp->current_time;
+        
+        //printf("%lf %lf %u\n", now, sod->start_time, ack);
+        
 	if (now - sod->start_time >= sod->update_period)
         {   
           
@@ -169,7 +188,9 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
                 timeShift(&sod->bwWindow, now, sod->estimate_period);//(double)sod->baseRTT/(double)1000000 + sk->ack_var);
                 tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 0 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
                 
-                printf("1 %lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
+                printf("1 %lf %lf %u %u %ld %u %ld %lf %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var), ((double)sod->baseRTT/(double)1000000));
+                
+                fprintf(sod->output, "%lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
                 
             } 
             else
@@ -189,7 +210,9 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
                 //sod->thruput = sod->estimatedBandwidth;
                 tp->snd_cwnd = ((int32_t)tp->snd_cwnd <= sod->currentQueueLen - sod->targetQueueLen ? 0 : tp->snd_cwnd - (sod->currentQueueLen - sod->targetQueueLen));
                 
-                printf("2. %lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
+                printf("2. %lf %lf %u %u %ld %u %ld %lf %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var), ((double)sod->baseRTT/(double)1000000));
+                
+                fprintf(sod->output, "%lf %lf %u %u %ld %u %ld %lf %lf\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->estimatedBandwidth, sod->estimatedBandwidth * ((double)sod->baseRTT/(double)1000000 + sk->ack_var));
                 
             }
                                                            
@@ -202,10 +225,8 @@ static void tcp_sod_cong_avoid(struct sock *sk, u32 ack,
         else if (tp->snd_cwnd > tp->snd_cwnd_clamp)
                 tp->snd_cwnd = tp->snd_cwnd_clamp;
 	
-	sod->minRTT = 0x7fffffff;
-        
-        //fprintf(sod->output, "%lf %lf %u %u %ld %ld %ld %ld\n", now, sod->start_time, ack, tp->snd_cwnd, sod->currentQueueLen, sod->targetQueueLen, sk->sod_diff, sod->baseRTT);
-                
+	//sod->minRTT = 0x7fffffff;
+                       
                 
 }
 

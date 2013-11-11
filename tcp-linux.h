@@ -166,7 +166,7 @@ protected:
 
 	inline void tcp_set_ca_state(const u8 ca_state) {
 		if ((linux_.icsk_ca_ops)&&(linux_.icsk_ca_ops->set_state))
-			linux_.icsk_ca_ops->set_state(&linux_, ca_state);
+			//linux_.icsk_ca_ops->set_state(&linux_, ca_state);
 		//printf("%lf: %d State: %d->%d cwnd:%d ssthresh:%d\n",Scheduler::instance().clock(), this, linux_.icsk_ca_state, ca_state, linux_.snd_cwnd, linux_.snd_ssthresh);
 		linux_.icsk_ca_state = ca_state;
 

@@ -368,6 +368,8 @@ struct tcp_sock {
         
         long long sod_diff; 
         int sod_start;
+        //int sack_diff;
+        //int sackout;
         
 	struct tcp_congestion_ops *icsk_ca_ops;
 	__u8			  icsk_ca_state;

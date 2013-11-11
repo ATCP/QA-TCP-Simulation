@@ -128,6 +128,7 @@ LinuxTcpAgent::LinuxTcpAgent() :
 	linux_.td_last_index = 0;
 	linux_.prev_time = 0;
         linux_.current_time = 0;
+        //linux_.sack_diff = 0;
 	//load_to_linux_once();
 //	scb_->test();
 }
@@ -482,16 +483,10 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
                                                 
 		flag |= (FLAG_DATA_ACKED);
 	};
-
+        
 	flag |= ack_processing(pkt, flag);
 	DEBUG(5, "ack_processed prior_snd_una=%lu ack=%lu\n", prior_snd_una, ack);
-        
-	if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
-		flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
-	};
-        
-	DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
-
+                              	
 	time_processing(pkt, flag, &seq_rtt);
 	DEBUG(5, "time processed\n");
                 
@@ -509,9 +504,33 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 			        double then = tss[tcph->seqno() % tss_size_];
 				last_ackt = (s64)trunc(then*1000000000);
 			};	
-			linux_.icsk_ca_ops->pkts_acked(sk, ack - prior_snd_una, last_ackt);
+                        
+			linux_.icsk_ca_ops->pkts_acked(sk, (ack - prior_snd_una) > scb_->SackOut()? ack - prior_snd_una - scb_->SackOut():1, last_ackt);
+                        //int _recover = recover_;
+                        //int _highest_ack = highest_ack_;
+                        
+                        //printf("ACK %lf %u %d %ld %d %d %d %d\n", now, ack, (ack - prior_snd_una) > scb_->SackOut()? ack - prior_snd_una - scb_->SackOut():0, last_ackt, scb_->SackOut(), scb_->FackOut(), _recover, _highest_ack);*/
+                        
 		}
-
+                else if (linux_.icsk_ca_ops->pkts_acked)
+                {
+                    double then = tss[tcph->seqno() % tss_size_];
+                    ktime_t last_ackt = (s64)trunc(then*1000000000);
+                    
+                    linux_.icsk_ca_ops->pkts_acked(sk, (ack>prior_snd_una ? ack - prior_snd_una:1), last_ackt);                        
+                    
+                    //int _recover = recover_;
+                    //int _highest_ack = highest_ack_;                    
+                    
+                    //printf("DUP %lf %u %d %ld %d %d %d %d\n", now, ack, (ack>prior_snd_una ? ack - prior_snd_una:1), last_ackt, scb_->SackOut(), scb_->FackOut(), _recover, _highest_ack);
+                }
+                
+                if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
+                        flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
+                };
+                                      
+        	DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
+                
 		if ((linux_.icsk_ca_state==TCP_CA_Open)&& (!(flag&FLAG_CA_ALERT)) && (flag&FLAG_NOT_DUP)) {
 			tcp_ca_event(CA_EVENT_FAST_ACK);
 		}
@@ -539,8 +558,9 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 	}
 	DEBUG(5, "Event processed\n");
 	if (tcp_ack_is_dubious(flag)){
-		if ((flag & FLAG_DATA_ACKED) && tcp_may_raise_cwnd(flag))
-			tcp_cong_avoid(ack, seq_rtt, prior_in_flight, 0);
+		//if ((flag & FLAG_DATA_ACKED) && tcp_may_raise_cwnd(flag))
+		tcp_cong_avoid(ack, seq_rtt, prior_in_flight, 0);
+                       
 		DEBUG(5, "dubious track cc finished\n");
 		tcp_fastretrans_alert(flag);
                 
@@ -596,15 +616,25 @@ void LinuxTcpAgent::tcp_fastretrans_alert(unsigned char flag)
 	} else {
 		if (highest_ack_ >= recover_) {
 			DEBUG(5,"clear scoread board\n");
+                        //int _recover = recover_;
+                        //int _highest_ack = highest_ack_;
+                        //printf("Recover %d %d %d %d\n", _recover, _highest_ack, scb_->SackOut(), scb_->FackOut());
+                        
 			scb_->ClearScoreBoard();
+                        
 			if (linux_.icsk_ca_ops == NULL) load_to_linux();
-			if (linux_.snd_cwnd < linux_.snd_ssthresh)
+			
+                        /*
+                        if (linux_.snd_cwnd < linux_.snd_ssthresh)
 			{
 				linux_.snd_cwnd = linux_.snd_ssthresh;
 				tcp_moderate_cwnd();
 			}
-			tcp_set_ca_state(TCP_CA_Open);
-			next_pkts_in_flight_ = 0; //stop rate halving
+                        */
+			
+                        tcp_set_ca_state(TCP_CA_Open);
+			//next_pkts_in_flight_ = 0; //stop rate halving
+                       
 			return;
 		}	
 	}
@@ -620,14 +650,20 @@ void LinuxTcpAgent::tcp_fastretrans_alert(unsigned char flag)
 		if (flag&(FLAG_DATA_LOST | FLAG_ECE)) {
 			recover_ = maxseq_;
 			last_cwnd_action_ = CWND_ACTION_DUPACK;
-		        touch_cwnd();
+		        
+                        /*
+                        touch_cwnd();
 			next_pkts_in_flight_ = linux_.snd_cwnd;	//we do rate halving
-		        if (linux_.icsk_ca_ops==NULL) {
+		        */
+                        
+                        if (linux_.icsk_ca_ops==NULL) {
                 		slowdown(CLOSE_SSTHRESH_HALF|CLOSE_CWND_HALF);
 				load_to_linux();
         		} else {
 				//ok this is the linux part
-				DEBUG(5, "check ssthresh\n");
+				
+                                /*
+                                DEBUG(5, "check ssthresh\n");                                
 				linux_.snd_ssthresh = icsk->icsk_ca_ops->ssthresh(&linux_);
 				linux_.snd_cwnd_cnt = 0;
 				linux_.bytes_acked = 0;
@@ -636,7 +672,10 @@ void LinuxTcpAgent::tcp_fastretrans_alert(unsigned char flag)
 					linux_.snd_cwnd = icsk->icsk_ca_ops->min_cwnd(&linux_);
 				else
 					linux_.snd_cwnd = linux_.snd_ssthresh;
+                                
+                                 
 				ncwndcuts_++;
+                                */
 				cong_action_ = TRUE;
 				// Linux uses a CWR process to halve rate, we have a simpler one.
 			}
@@ -783,6 +822,10 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 					return;
 				found = 1;
 				xmit_seqno = t_seqno_++;
+                                
+                                if (linux_.sod_start)
+                                    linux_.sod_diff ++;
+                                
 			} else {
 				found = 1;
 				DEBUG(5, "%lf (%p) : Retran %d\n", Scheduler::instance().clock(), this, xmit_seqno);
@@ -790,13 +833,10 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 				win = window();
 			}
 			if (found) {
-				output(xmit_seqno, reason);
-                                
-                                if (linux_.sod_start)
-                                    linux_.sod_diff ++;
-                                
-                                //int pkt = next_pkts_in_flight_;
-                                //printf("%d %d %d %d\n", linux_.sod_diff, packets_in_flight(), win, pkt);
+				output(xmit_seqno, reason);  
+                                                                
+                              
+                                                                
 				next_pkts_in_flight_ = min(next_pkts_in_flight_, max(packets_in_flight()-1,1));
 				
                                 if (t_seqno_ <= xmit_seqno) {
@@ -806,6 +846,9 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
                                 
 				linux_.snd_nxt = t_seqno_*linux_.mss_cache;
 				npacket++;
+                                
+                                int pkt = next_pkts_in_flight_;
+                                //printf("pkt %d %d %d %d %lu %lu\n", linux_.sod_diff, packets_in_flight(), win, pkt, linux_.snd_nxt, linux_.snd_una);
 			}
                         
 		} else if (!(delsnd_timer_.status() == TIMER_PENDING)) {

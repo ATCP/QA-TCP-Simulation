@@ -33,6 +33,17 @@ void initSlideWindow(slideWindow *sw, int size)
     }
 }
 
+void cleanWindow(slideWindow *sw)
+{
+    sw->_size = 0;
+    sw->_total = 0;
+    int i;
+    for (i = 0; i < sw->capacity; i ++)
+    {
+        sw->window[i].time = sw->window[i].len = 0;
+    }
+}
+
 void delSlideWindow(slideWindow *sw)
 {
     free(sw->window);
@@ -110,9 +121,9 @@ struct sod
     //u32	   beg_snd_una;         /* left edge  during last RTT */
     //u32	   beg_snd_cwnd;	/* saves the size of the cwnd */
     u8	   doing_sod_now;       /* if true, do vegas for this RTT */
-    u16	   cntRTT;		/* # of RTTs measured within last RTT */
+    //u16	   cntRTT;		/* # of RTTs measured within last RTT */
     int64_t   currentQueueLen;     /* min of RTTs measured within last RTT (in usec) */
-    u64	   minRTT;              /* min of RTTs measured within last RTT (in usec) */
+    //u64	   minRTT;              /* min of RTTs measured within last RTT (in usec) */
     int64_t   targetQueueLen;
     u64	   baseRTT;             /* the min of all Vegas RTT measurements seen (in usec) */
     double    estimatedBandwidth;  /**/
@@ -120,7 +131,7 @@ struct sod
     double    start_time;
     double    update_period;
     double    estimate_period;
-    
+    u32 start_seq;
     slideWindow bwWindow;    
     FILE* output;
 
