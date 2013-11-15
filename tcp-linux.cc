@@ -486,7 +486,15 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
         
 	flag |= ack_processing(pkt, flag);
 	DEBUG(5, "ack_processed prior_snd_una=%lu ack=%lu\n", prior_snd_una, ack);
-                              	
+        
+        /*
+        if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
+                     flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
+             };
+             
+        DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
+        */
+        
 	time_processing(pkt, flag, &seq_rtt);
 	DEBUG(5, "time processed\n");
                 
@@ -506,30 +514,45 @@ void LinuxTcpAgent::recv(Packet *pkt, Handler*)
 			};	
                         
 			linux_.icsk_ca_ops->pkts_acked(sk, (ack - prior_snd_una) > scb_->SackOut()? ack - prior_snd_una - scb_->SackOut():1, last_ackt);
-                        //int _recover = recover_;
-                        //int _highest_ack = highest_ack_;
+                        int _recover = recover_;
+                        int _highest_ack = highest_ack_;
                         
-                        //printf("ACK %lf %u %d %ld %d %d %d %d\n", now, ack, (ack - prior_snd_una) > scb_->SackOut()? ack - prior_snd_una - scb_->SackOut():0, last_ackt, scb_->SackOut(), scb_->FackOut(), _recover, _highest_ack);*/
+                        //printf("ACK %lf %u %d %ld %d %d %d %d\n", now, ack, (ack - prior_snd_una) > scb_->SackOut()? ack - prior_snd_una - scb_->SackOut():0, last_ackt, scb_->SackOut(), scb_->FackOut(), _recover, _highest_ack);
+                        
+                        if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
+                            flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
+                    };
                         
 		}
                 else if (linux_.icsk_ca_ops->pkts_acked)
                 {
+                    int pre_sack = scb_->SackOut();
+                    
+                    if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
+                            flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
+                    };
+                    
+                    int post_sack = scb_->SackOut();
+                    
                     double then = tss[tcph->seqno() % tss_size_];
                     ktime_t last_ackt = (s64)trunc(then*1000000000);
                     
-                    linux_.icsk_ca_ops->pkts_acked(sk, (ack>prior_snd_una ? ack - prior_snd_una:1), last_ackt);                        
+                    linux_.icsk_ca_ops->pkts_acked(sk, pre_sack == post_sack ? 0:1/*(ack>prior_snd_una ? ack - prior_snd_una:1)*/, last_ackt);                        
                     
-                    //int _recover = recover_;
-                    //int _highest_ack = highest_ack_;                    
+                    int _recover = recover_;
+                    int _highest_ack = highest_ack_;                    
                     
                     //printf("DUP %lf %u %d %ld %d %d %d %d\n", now, ack, (ack>prior_snd_una ? ack - prior_snd_una:1), last_ackt, scb_->SackOut(), scb_->FackOut(), _recover, _highest_ack);
+                }                
+                else
+                {
+                    if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
+                            flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
+                    };
                 }
-                
-                if ((tcph->sa_length()> 0) || (FLAG_DATA_ACKED && (!scb_->IsEmpty()))) {
-                        flag |= scb_->UpdateScoreBoard(highest_ack_, tcph);
-                };
+             DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
                                       
-        	DEBUG(5, "sack processed sack len=%d \n", tcph->sa_length());
+        	
                 
 		if ((linux_.icsk_ca_state==TCP_CA_Open)&& (!(flag&FLAG_CA_ALERT)) && (flag&FLAG_NOT_DUP)) {
 			tcp_ca_event(CA_EVENT_FAST_ACK);
@@ -702,11 +725,14 @@ void LinuxTcpAgent::enter_loss()
 	// icsk->icsk_retransmits: this is the # of unrecovered loss. in our case, all the loss are unrecovered.
 //		if (linux_icsk_ca_state <= TCP_CA_Disorder || (highest_ack_+1) == recover_ || linux_icsk_ca_state== TCP_CA_LOSS) {
 		
-		linux_.snd_ssthresh = linux_.icsk_ca_ops->ssthresh(&linux_);
+		//linux_.snd_ssthresh = linux_.icsk_ca_ops->ssthresh(&linux_);
 		tcp_ca_event(CA_EVENT_LOSS);
-		linux_.snd_cwnd = 1;
+		
+                /*
+                linux_.snd_cwnd = 1;
 		linux_.snd_cwnd_cnt = 0;
 		linux_.bytes_acked = 0;
+                 */
 		//We don't have undo yet, otherwise, we should have:
 		//tp->undo_marker = tp->snd_una;
 
@@ -835,7 +861,7 @@ void LinuxTcpAgent::send_much(int force, int reason, int maxburst)
 			if (found) {
 				output(xmit_seqno, reason);  
                                                                 
-                              
+                               
                                                                 
 				next_pkts_in_flight_ = min(next_pkts_in_flight_, max(packets_in_flight()-1,1));
 				
@@ -907,7 +933,7 @@ void LinuxTcpAgent::save_from_linux()
 
 	//TODO
 	if (next_pkts_in_flight_ > (int)linux_.snd_cwnd) 
-		cwnd_ = next_pkts_in_flight_; 
+		cwnd_ = linux_.snd_cwnd; //next_pkts_in_flight_; 
 	else
 		cwnd_ = linux_.snd_cwnd;
 // + min(((double)linux_.snd_cwnd_cnt/(double)linux_.snd_cwnd),1);
